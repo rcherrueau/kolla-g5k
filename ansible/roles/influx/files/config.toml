@@ -22,7 +22,7 @@ reporting-disabled = false
 
 [meta]
   # Where the metadata/raft database is stored
-  dir = "/data/meta"
+  dir = "/var/lib/influxdb/meta"
 
   retention-autocreate = true
 
@@ -46,10 +46,10 @@ reporting-disabled = false
   # Controls if this node holds time series data shards in the cluster
   enabled = true
 
-  dir = "/data/data"
+  dir = "/var/lib/influxdb/data"
 
   # These are the WAL settings for the storage engine >= 0.9.3
-  wal-dir = "/data/wal"
+  wal-dir = "/var/lib/influxdb/wal"
   wal-logging-enabled = true
   data-logging-enabled = true
 
@@ -178,9 +178,9 @@ reporting-disabled = false
 
 [[graphite]]
   enabled = false
-  database = "graphitedb"
-  bind-address = ":2003"
-  protocol = "tcp"
+  # database = "graphite"
+  # bind-address = ":2003"
+  # protocol = "tcp"
   # consistency-level = "one"
 
   # These next lines control how batching works. You should have this enabled
@@ -266,8 +266,8 @@ reporting-disabled = false
 
 [[udp]]
   enabled = false
-  bind-address = ":4444"
-  database = "udpdb"
+  # bind-address = ":4444"
+  # database = "udpdb"
   # retention-policy = ""
 
   # These next lines control how batching works. You should have this enabled
