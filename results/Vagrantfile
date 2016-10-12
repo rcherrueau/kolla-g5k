@@ -31,7 +31,9 @@ XPS =[
     :name  => "concurrency",
     :confs => [ "ccy0001-0015-cpt20-nfk50",
                 "ccy0025-0045-cpt20-nfk50",
-                "ccy0100-1000-cpt20-nfk05" ]
+                "ccy0100-1000-cpt20-nfk05",
+                "ccy200x5-hap100000vs4000-cpt20-nfk05",
+                "ccy100x5-key10vs20-cpt20-nfk05" ]
   },
   {
     # load test with a clustered rabbitmq
@@ -56,7 +58,7 @@ Vagrant.configure(2) do |config|
     config.ssh.username = "root"
     # password to use to log inside the vm
     config.ssh.private_key_path = File.join(ENV['HOME'], ".ssh/id_rsa_discovery")
- 
+
     config.vm.provider "g5k" do |g5k|
       # The project id.
       # It is used to generate uniq remote storage for images
@@ -126,7 +128,7 @@ Vagrant.configure(2) do |config|
         my.vm.provision :ansible do |ansible|
           ansible.playbook = "boilerplate.yml"
           ansible.extra_vars = xps
-#          ansible.verbose = "-vvvv"
+           # ansible.verbose = "-vvvv"
         end
       end
     end
