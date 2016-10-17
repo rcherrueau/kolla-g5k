@@ -1,24 +1,22 @@
 # -*- coding: utf-8 -*-
 """Lemur: Monitor and test your OpenStack.
 
-usage: lemur [-h|--help] <command> [<args> ...]
+usage: lemur [-h|--help] [--provider=PROVIDER] <command> [<args> ...]
 
 Options:
-  -h --help     Show this help message.
+  -h --help            Show this help message.
+  --provider=PROVIDER  The provider name [default: G5K].
 
 Commands:
-  up            Make a G5K reservation and install the docker registry
-  os            Run kolla and install OpenStack
-  init          TODO: explain me
-  bench         Run rally on this OpenStack
-  ssh-tunnel    Print configuration for port forwarding with horizon
-  info          Show information of the actual deployment
+  up             Make a G5K reservation and install the docker registry.
+  os             Run kolla and install OpenStack.
+  init           TODO: explain me.
+  bench          Run rally on this OpenStack.
+  ssh-tunnel     Print configuration for port forwarding with horizon.
+  info           Show information of the actual deployment.
 
-See 'lemur help <command>' for more information on a specific command.
+See 'lemur <command> --help' for more information on a specific command.
 """
-# TODO: Add next command
-#  lemur [-h | --help] [-f CONFIG_PATH] [--force-deploy]
-#  lemur info
 from utils import *
 from provider.g5k import G5K
 
@@ -52,8 +50,6 @@ SCRIPT_PATH = os.path.dirname(os.path.realpath(__file__))
 SYMLINK_NAME = os.path.join(SCRIPT_PATH, 'current')
 TEMPLATE_DIR = os.path.join(SCRIPT_PATH, 'templates')
 
-KOLLA_REPO = 'https://git.openstack.org/openstack/kolla'
-KOLLA_BRANCH = 'stable/mitaka'
 # These roles are mandatory for the
 # the original inventory to be valid
 # Note that they may be empy
@@ -66,15 +62,6 @@ KOLLA_MANDATORY_GROUPS = [
     "storage"
 ]
 
-# State of the script
-ENV = {
-    'config' : {}, # The config
-    'config_file' : '', # The initial config file
-    'nodes'  : {}, # Roles with nodes
-    'phase'  : '', # Last phase that have been run
-    'user'   : ''  # User id for this job
-}
-
 INTERNAL_IP = 0
 REGISTRY_IP = 1
 INFLUX_IP   = 2
@@ -84,40 +71,61 @@ NEUTRON_IP  = 4
 NETWORK_IFACE  = 0
 EXTERNAL_IFACE = 1
 
+def load_env():
+    env = {
+        'config' : {},      # The config
+        'config_file' : '', # The initial config file
+        'nodes'  : {},      # Roles with nodes
+        'phase'  : '',      # Last phase that have been run
+        'user'   : '',      # User id for this job
+        'kolla_repo': 'https://git.openstack.org/openstack/kolla',
+        'kolla_branch': 'stable/mitaka'
+    }
+
+    # Loads the previously saved environment (if any)
+    env_path = os.path.join(SYMLINK_NAME, 'env')
+    if os.path.isfile(env_path):
+        with open(env_path, 'r') as f:
+            env.update(yaml.load(f))
+            logging.info("Reloaded config %s", ENV['config'])
+
+    # Resets the configuration of the environment
+    if os.path.isfile(env['config_file']):
+        with open(env['config_file'], 'r') as f:
+            env['config'].update(yaml.load(f))
+            logging.info("Reloaded config %s", ENV['config'])
+
+
+    return env
+
+def save_env(env):
+    env_path = os.path.join(SYMLINK_NAME, 'env')
+    with open(env_path, 'w') as f:
+        yaml.dump(env, f)
+
 def lemurtask(doc):
     """Decorator for a Lemur Task."""
     def decorator(fn):
         fn.__doc__ = doc
         @functools.wraps(fn)
         def decorated(*args, **kwargs):
-            # TODO: Load dynamically the provider
-            kwargs['provider'] = G5K();
-            # TODO: handle the loading of env
-            kwargs['env'] = ENV;
+            logging.info("Lemur kwargs %s", kwargs)
+
+            # TODO: Dynamically loads the provider
+            provider_name = kwargs['--provider']
+            kwargs['provider'] = G5K()
+
+            # Loads the environment & set the config
+            env = load_env()
+            kwargs['env'] = env
+
+            # Proceeds with the function executio
             fn(*args, **kwargs)
+
             # TODO: handle the save of env
+            save_env(env)
         return decorated
     return decorator
-
-def save_state():
-    state_path = os.path.join(SYMLINK_NAME, '.state')
-    with open(state_path, 'wb') as state_file:
-        pickle.dump(ENV, state_file)
-
-def load_env():
-    state_path = os.path.join(SYMLINK_NAME, '.state')
-    if os.path.isfile(state_path):
-        with open(state_path, 'rb') as state_file:
-            ENV.update(pickle.load(state_file))
-
-def update_config_state():
-    """
-    Update ENV['config'] with the config file options
-    """
-    config_file = ENV['config_file']
-    with open(config_file, 'r') as f:
-        ENV['config'].update(yaml.load(f))
-    logger.info("Reloaded config %s", ENV['config'] )
 
 
 @lemurtask(
@@ -133,18 +141,17 @@ def update_config_state():
 """)
 def up(provider=None, env=None, **kwargs):
     logging.info('phase[up]')
-    print(provider)
-    print(env)
-    print(kwargs)
-    rsc, ips, eths = provider.initialize(env.config)
 
-    env.watch(rsc) #, ips, eths)
+    # Loads the configuration file
+    if os.path.isfile(kwargs['-f']):
+        with open(env['config_file'], 'r') as f:
+            env['config'].update(yaml.load(f))
+            logging.info("Reloaded config %s", ENV['config'])
 
-    # def preinstall(provider, tag=None, env=None):
-    # logging.info('phase[preinstall]')
+    rsc, ips, eths = provider.initialize(env['config'])
 
-    # ips  = env.ips
-    # eths = env.eths
+    # env.watch(rsc)
+    env['rsc'] = rsc
 
     # Generates a directory for results
     resultdir_name = 'lemur_' + datetime.today().isoformat()
@@ -152,18 +159,18 @@ def up(provider=None, env=None, **kwargs):
     os.mkdir(resultdir)
     logging.info('Generates result directory %s' % resultdir_name)
 
-    env.watch(resultdir)
+    env['resultdir'] = resultdir
 
     # Generates inventory for ansible/kolla
     base_inventory = config['inventory']
     inventory = os.path.join(resultdir, 'multinode')
-    generate_inventory(env.rsc, base_inventory, inventory)
+    generate_inventory(env['rsc'], base_inventory, inventory)
     logging.info('Generates inventory %s' % inventory)
 
-    env.watch(inventory)
+    env['inventory'] = inventory
 
     # Set variables required by playbooks of the application
-    config.update({
+    env['config'].update({
         # Lemur/Kolla
         'vip':          ips[INTERNAL_IP],
         'registry_vip': ips[REGISTRY_IP],
@@ -178,7 +185,7 @@ def up(provider=None, env=None, **kwargs):
     })
     passwords = os.path.join(TEMPLATE_DIR, "passwords.yml")
     with open(passwords_path) as passwords_file:
-        env.config.update(yaml.load(passwords_file))
+        env['config'].update(yaml.load(passwords_file))
 
     # Grabs playbooks & runs them
     playbooks = []
@@ -189,7 +196,7 @@ def up(provider=None, env=None, **kwargs):
     pb_after = provider.after_preintsall(env)
     if pb_after: playbooks.append(pb_after)
 
-    run_ansible(playbooks, inventory, env.config, tags)
+    run_ansible(playbooks, inventory, env['config'], tags)
 
     # Symlink current directory
     link = os.path.abspath(SYMLINK_NAME)
@@ -210,11 +217,9 @@ Options:
   --reconfigure          Reconfigure the services after a deployment.
 
 """)
-def install_os(reconfigure, env=None, **kwargs):
-    update_config_state()
-
+def install_os(reconfigure=False, env=None, **kwargs):
     # Generates kolla globals.yml, passwords.yml
-    generate_kolla_files(env.config["kolla"], env.config, env.resultdir)
+    generate_kolla_files(env['config']["kolla"], env['config'], env['resultdir'])
 
     # Clone or pull Kolla
     if os.path.isdir('kolla'):
@@ -222,14 +227,14 @@ def install_os(reconfigure, env=None, **kwargs):
         kolla_path = os.path.join(SCRIPT_PATH, "kolla")
         call("rm -rf %s" % kolla_path, shell=True)
 
-    logger.info("Cloning Kolla")
-    call("cd %s ; git clone %s -b %s > /dev/null" % (SCRIPT_PATH, KOLLA_REPO, KOLLA_BRANCH), shell=True)
+    logging.info("Cloning Kolla")
+    call("cd %s ; git clone %s -b %s > /dev/null" % (SCRIPT_PATH, env['kolla_repo'], env['kolla_branch']), shell=True)
 
     logging.warning(("Patching kolla, this should be ",
                      "deprecated with the new version of Kolla"))
 
     playbook = os.path.join(SCRIPT_PATH, "ansible", "patches.yml")
-    run_ansible([playbook], env.inventory, env.config)
+    run_ansible([playbook], env['inventory'], env['config'])
 
     kolla_cmd = [os.path.join(SCRIPT_PATH, "kolla", "tools", "kolla-ansible")]
 
@@ -335,20 +340,34 @@ if __name__ == "__main__":
                   version='lemur version 0.1',
                   options_first=True)
 
+
     argv = [args['<command>']] + args['<args>']
 
+
     if args['<command>'] == 'up':
-        up(**docopt(up.__doc__, argv=argv))
+        lemur_args = docopt(up.__doc__, argv=argv)
+        args.update(lemur_args)
+        up(**args)
     elif args['<command>'] == 'os':
-        install_os(**docopt(install_os.__doc__, argv=argv))
+        lemur_args = docopt(install_os.__doc__, argv=argv)
+        args.update(lemur_args)
+        install_os(**args)
     elif args['<command>'] == 'init':
-        init_os(**docopt(init_os.__doc__, argv=argv))
+        lemur_args = docopt(init_os.__doc__, argv=argv)
+        args.update(lemur_args)
+        init_os(**args)
     elif args['<command>'] == 'bench':
-        bench(**docopt(bench.__doc__, argv=argv))
+        lemur_args = docopt(bench.__doc__, argv=argv)
+        args.update(lemur_args)
+        bench(**args)
     elif args['<command>'] == 'ssh-tunnel':
-        ssh_tunnel(**docopt(info.__doc__, argv=argv))
+        lemur_args = docopt(ssh_tunnel.__doc__, argv=argv)
+        args.update(lemur_args)
+        ssh_tunnel(**args)
     elif args['<command>'] == 'info':
-        info(**docopt(info.__doc__, argv=argv))
+        lemur_args = docopt(info.__doc__, argv=argv)
+        args.update(lemur_args)
+        info(**args)
     else: pass
 
     # # If the user doesn't specify a phase in particular, then run all
