@@ -4,13 +4,29 @@ from ansible.inventory import Inventory
 import ansible.callbacks
 import ansible.playbook
 
-import logging
+from subprocess import call
+import jinja2, os, yaml, logging
+
+# These roles are mandatory for the
+# the original inventory to be valid
+# Note that they may be empy
+# e.g. if cinder isn't installed storage may be a empty group
+# in the inventory
+KOLLA_MANDATORY_GROUPS = [
+    "control",
+    "compute",
+    "network",
+    "storage"
+]
+
+SCRIPT_PATH = os.path.dirname(os.path.realpath(__file__))
+TEMPLATE_DIR = os.path.join(SCRIPT_PATH, '..', 'templates')
 
 def run_ansible(playbooks, inventory_path, extra_vars={}, tags=None):
     inventory = Inventory(inventory_path)
 
     for path in playbooks:
-        logging.info("Running playbook %s with vars:\n%s" % (style.emph(path), extra_vars))
+        logging.info("Running playbook %s with vars:\n%s" % (path, extra_vars))
         stats = ansible.callbacks.AggregateStats()
         playbook_cb = ansible.callbacks.PlaybookCallbacks(verbose=1)
 
@@ -40,9 +56,9 @@ def run_ansible(playbooks, inventory_path, extra_vars={}, tags=None):
                 unreachable_hosts.append(h)
 
         if len(failed_hosts) > 0:
-            logger.error("Failed hosts: %s" % failed_hosts)
+            logging.error("Failed hosts: %s" % failed_hosts)
         if len(unreachable_hosts) > 0:
-            logger.error("Unreachable hosts: %s" % unreachable_hosts)
+            logging.error("Unreachable hosts: %s" % unreachable_hosts)
 
 def render_template(template_path, vars, output_path):
     loader = jinja2.FileSystemLoader(searchpath='.')
@@ -66,7 +82,7 @@ def generate_inventory(roles, base_inventory, dest):
             for line in a:
                 f.write(line)
 
-    logger.info("Inventory file written to " + style.emph(dest))
+    logging.info("Inventory file written to " + dest)
 
 def to_ansible_group_string(roles):
     """
@@ -107,17 +123,17 @@ def generate_kolla_files(config_vars, kolla_vars, directory):
     with open(globals_path, 'w') as f:
         yaml.dump(kolla_globals, f, default_flow_style=False)
 
-    logger.info("Wrote " + style.emph(globals_path))
+    logging.info("Wrote " + globals_path)
 
     # copy the passwords file
     passwords_path = os.path.join(directory, "passwords.yml")
     call("cp %s/passwords.yml %s" % (TEMPLATE_DIR, passwords_path), shell=True)
-    logger.info("Password file is copied to  %s" % (passwords_path))
+    logging.info("Password file is copied to  %s" % (passwords_path))
 
     # admin openrc
     admin_openrc_path = os.path.join(directory, 'admin-openrc')
     admin_openrc_vars = {
         'keystone_address': kolla_vars['kolla_internal_vip_address']
     }
-    render_template('templates/admin-openrc.jinja2', admin_openrc_vars, admin_openrc_path)
-    logger.info("admin-openrc generated in %s" % (admin_openrc_path))
+    render_template('lemur/templates/admin-openrc.jinja2', admin_openrc_vars, admin_openrc_path)
+    logging.info("admin-openrc generated in %s" % (admin_openrc_path))

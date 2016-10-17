@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """Lemur: Monitor and test your OpenStack.
 
-usage: lemur [-h|--help] [--provider=PROVIDER] <command> [<args> ...]
+usage: lemur [-h|--help] [-v|-vv|-vvv] <command> [<args> ...]
 
 Options:
-  -h --help            Show this help message.
-  --provider=PROVIDER  The provider name [default: G5K].
+  -h --help      Show this help message.
+  -v -vv -vvv    Verbose mode.
 
 Commands:
   up             Get resources and install the docker registry.
@@ -17,7 +17,7 @@ Commands:
 
 See 'lemur <command> --help' for more information on a specific command.
 """
-from utils import *
+from utils.extra import *
 from utils.lemurtask import lemurtask
 
 from datetime import datetime
@@ -37,25 +37,12 @@ import os
 import sys
 from subprocess import call
 
-
 import yaml
 
 CALL_PATH = os.getcwd()
 SCRIPT_PATH = os.path.dirname(os.path.realpath(__file__))
 SYMLINK_NAME = os.path.join(SCRIPT_PATH, 'current')
 TEMPLATE_DIR = os.path.join(SCRIPT_PATH, 'templates')
-
-# These roles are mandatory for the
-# the original inventory to be valid
-# Note that they may be empy
-# e.g. if cinder isn't installed storage may be a empty group
-# in the inventory
-KOLLA_MANDATORY_GROUPS = [
-    "control",
-    "compute",
-    "network",
-    "storage"
-]
 
 INTERNAL_IP = 0
 REGISTRY_IP = 1
@@ -66,15 +53,16 @@ NEUTRON_IP  = 4
 NETWORK_IFACE  = 0
 EXTERNAL_IFACE = 1
 
-@lemurtask(
-"""usage: lemur up [-f CONFIG_PATH] [--force-deploy] [-t TAGS | --tags=TAGS]
+@lemurtask("""
+usage: lemur up [-f CONFIG_PATH] [--force-deploy] [-t TAGS | --tags=TAGS]
+                [--provider=PROVIDER] [-v|-vv|-vvv]
 
-  -h --help             Show this help message.
-
-  -f CONFIG_PATH        Path to the configuration file describing the
-                        Grid'5000 deployment [default: ./reservation.yaml].
-  --force-deploy        Force deployment [default: False].
-  -t TAGS --tags=TAGS   Only run ansible tasks tagged with these values.
+  -h --help            Show this help message.
+  -f CONFIG_PATH       Path to the configuration file describing the
+                       deployment [default: ./reservation.yaml].
+  --force-deploy       Force deployment [default: False].
+  -t TAGS --tags=TAGS  Only run ansible tasks tagged with these values.
+  --provider=PROVIDER  The provider name [default: G5K].
 
 """)
 def up(provider=None, env=None, **kwargs):
@@ -91,9 +79,11 @@ def up(provider=None, env=None, **kwargs):
         logging.error('Configuration file %s does not exist', config_file)
 
     # Calls the provider and initialise resources
-    rsc, ips, eths = provider.init(env['config'], kwargs['--force-deploy'])
+    rsc,ips,eths = provider.init(env['config'], kwargs['--force-deploy'])
 
     env['rsc'] = rsc
+    env['ips'] = ips
+    env['eths'] = eths
 
     # Generates a directory for results
     resultdir_name = 'lemur_' + datetime.today().isoformat()
@@ -102,10 +92,9 @@ def up(provider=None, env=None, **kwargs):
     logging.info('Generates result directory %s' % resultdir_name)
 
     env['resultdir'] = resultdir
-    sys.exit(0)
 
     # Generates inventory for ansible/kolla
-    base_inventory = config['inventory']
+    base_inventory = env['config']['inventory']
     inventory = os.path.join(resultdir, 'multinode')
     generate_inventory(env['rsc'], base_inventory, inventory)
     logging.info('Generates inventory %s' % inventory)
@@ -127,19 +116,15 @@ def up(provider=None, env=None, **kwargs):
         'neutron_external_interface': eths[EXTERNAL_IFACE]
     })
     passwords = os.path.join(TEMPLATE_DIR, "passwords.yml")
-    with open(passwords_path) as passwords_file:
-        env['config'].update(yaml.load(passwords_file))
+    with open(passwords) as f:
+        env['config'].update(yaml.load(f))
 
-    # Grabs playbooks & runs them
-    playbooks = []
-    pb_before = provider.before_preintsall(env)
-    if pb_before: playbooks.append(pb_before)
-    pb_up = os.path.join(SCRIPT_PATH, 'ansible', 'up.yml')
-    playbooks.append(pb_up)
-    pb_after = provider.after_preintsall(env)
-    if pb_after: playbooks.append(pb_after)
-
-    run_ansible(playbooks, inventory, env['config'], tags)
+    # Executes hooks and runs playbook that initializes resources (eg,
+    # installs the registry, install monitoring tools, ...)
+    provider.before_preintsall(env)
+    up_playbook = os.path.join(SCRIPT_PATH, 'ansible', 'up.yml')
+    run_ansible([up_playbook], inventory, env['config'], kwargs['--tags'])
+    provider.after_preintsall(env)
 
     # Symlink current directory
     link = os.path.abspath(SYMLINK_NAME)
@@ -148,25 +133,23 @@ def up(provider=None, env=None, **kwargs):
     except OSError:
         pass
     os.symlink(resultdir, link)
-    logger.info("Symlinked %s to %s" % (resultdir, link))
+    logging.info("Symlinked %s to %s" % (resultdir, link))
 
 
-@lemurtask(
-"""usage: lemur os [--reconfigure] [-t TAGS | --tags=TAGS]
+@lemurtask("""
+usage: lemur os [--reconfigure] [-t TAGS | --tags=TAGS] [-v|-vv|-vvv]
 
-Options:
-  -h --help              Show this help message.
-  -t TAGS --tags=TAGS    Only run ansible tasks tagged with these values.
-  --reconfigure          Reconfigure the services after a deployment.
-
+  -h --help            Show this help message.
+  -t TAGS --tags=TAGS  Only run ansible tasks tagged with these values.
+  --reconfigure        Reconfigure the services after a deployment.
 """)
-def install_os(reconfigure=False, env=None, **kwargs):
+def install_os(env=None, **kwargs):
     # Generates kolla globals.yml, passwords.yml
     generate_kolla_files(env['config']["kolla"], env['config'], env['resultdir'])
 
     # Clone or pull Kolla
     if os.path.isdir('kolla'):
-        logger.info("Remove previous Kolla installation")
+        logging.info("Remove previous Kolla installation")
         kolla_path = os.path.join(SCRIPT_PATH, "kolla")
         call("rm -rf %s" % kolla_path, shell=True)
 
@@ -181,7 +164,7 @@ def install_os(reconfigure=False, env=None, **kwargs):
 
     kolla_cmd = [os.path.join(SCRIPT_PATH, "kolla", "tools", "kolla-ansible")]
 
-    if reconfigure:
+    if kwargs.has_key('--reconfigure'):
         kolla_cmd.append('reconfigure')
     else:
         kolla_cmd.append('deploy')
@@ -189,12 +172,16 @@ def install_os(reconfigure=False, env=None, **kwargs):
     kolla_cmd.extend(["-i", "%s/multinode" % SYMLINK_NAME,
                       "--configdir", "%s" % SYMLINK_NAME])
 
-    if tags: kolla_cmd.extend(["--tags", args])
+    if kwargs.has_key('--tags'): kolla_cmd.extend(['--tags', args])
 
     call(kolla_cmd)
 
 
-@lemurtask("""usage: lemur init""")
+@lemurtask("""
+usage: lemur init [-v|-vv|-vvv]
+
+  -h --help            Show this help message.
+""")
 def init_os(**kwargs):
     # Authenticate to keystone
     # http://docs.openstack.org/developer/keystoneauth/using-sessions.html
@@ -212,7 +199,7 @@ def init_os(**kwargs):
     keystone = kclient.Client(session=sess)
     role_name = 'member'
     if role_name not in map(attrgetter('name'), keystone.roles.list()):
-        logger.info("Creating role %s" % role_name)
+        logging.info("Creating role %s" % role_name)
         keystone.roles.create(role_name)
 
     # Install cirros with glance client if absent
@@ -222,7 +209,7 @@ def init_os(**kwargs):
         # Download cirros
         image_url  = 'http://download.cirros-cloud.net/0.3.4/'
         image_name = 'cirros-0.3.4-x86_64-disk.img'
-        logger.info("Downloading %s at %s..." % (cirros_name, image_url))
+        logging.info("Downloading %s at %s..." % (cirros_name, image_url))
         cirros_img = requests.get(image_url + '/' + image_name)
 
         # Install cirros
@@ -231,17 +218,23 @@ def init_os(**kwargs):
                                       disk_format='qcow2',
                                       visibility='public')
         glance.images.upload(cirros.id, cirros_img.content)
-        logger.info("%s has been created on OpenStack" %  cirros_name)
+        logging.info("%s has been created on OpenStack" %  cirros_name)
 
 @lemurtask(
-"""usage: lemur bench [--scenarios=SCENARIOS] [--times=TIMES] [--concurrency=CONCURRENCY] [--wait=WAIT]
+"""usage: lemur bench [--scenarios=SCENARIOS] [--times=TIMES]
+                      [--concurrency=CONCURRENCY] [--wait=WAIT]
+                      [-v|-vv|-vvv]
 
-  -h --help                    Show this help message.
-  --scenarios=SCENARIOS        Name of the files containing the scenarios to launch.
-                               The file must reside under the rally directory.
-  --times=TIMES                Number of times to run each scenario [default: 1].
-  --concurrency=CONCURRENCY    Concurrency level of the tasks in each scenario [default: 1].
-  --wait=WAIT                  Seconds to wait between two scenarios [default: 0].
+  -h --help                 Show this help message.
+  --scenarios=SCENARIOS     Name of the files containing the scenarios
+                            to launch. The file must reside under the
+                            rally directory.
+  --times=TIMES             Number of times to run each scenario
+                            [default: 1].
+  --concurrency=CONCURRENCY Concurrency level of the tasks in each
+                            scenario [default: 1].
+  --wait=WAIT               Seconds to wait between two scenarios
+                            [default: 0].
 """)
 def bench(**kwargs):
     playbook_path = os.path.join(SCRIPT_PATH, 'ansible', 'run-bench.yml')
@@ -258,8 +251,8 @@ def ssh_tunnel(**kwargs):
     user = ENV['user']
     internal_vip_address = ENV['config']['vip']
 
-    logger.info("ssh tunnel informations:")
-    logger.info("___")
+    logging.info("ssh tunnel informations:")
+    logging.info("___")
 
     script = "cat > /tmp/openstack_ssh_config <<EOF\n"
     script += "Host *.grid5000.fr\n"
@@ -274,8 +267,8 @@ def ssh_tunnel(**kwargs):
 
     script += "echo 'http://localhost:8080'\n"
 
-    logger.info(script)
-    logger.info("___")
+    logging.info(script)
+    logging.info("___")
 
 @lemurtask("usage: lemur info")
 def info(env = None, **kwargs):
@@ -287,34 +280,29 @@ if __name__ == "__main__":
                   version='lemur version 0.1',
                   options_first=True)
 
+    if '-v' in args['<args>']:
+        logging.basicConfig(level = logging.WARNING)
+    elif '-vv' in args['<args>']:
+        logging.basicConfig(level = logging.INFO)
+    elif '-vvv' in args['<args>']:
+        logging.basicConfig(level = logging.DEBUG)
+    else:
+        logging.basicConfig(level = logging.ERROR)
 
     argv = [args['<command>']] + args['<args>']
 
-
     if args['<command>'] == 'up':
-        lemur_args = docopt(up.__doc__, argv=argv)
-        args.update(lemur_args)
-        up(**args)
+        up(**docopt(up.__doc__, argv=argv))
     elif args['<command>'] == 'os':
-        lemur_args = docopt(install_os.__doc__, argv=argv)
-        args.update(lemur_args)
-        install_os(**args)
+        install_os(**docopt(install_os.__doc__, argv=argv))
     elif args['<command>'] == 'init':
-        lemur_args = docopt(init_os.__doc__, argv=argv)
-        args.update(lemur_args)
-        init_os(**args)
+        init_os(**docopt(init_os.__doc__, argv=argv))
     elif args['<command>'] == 'bench':
-        lemur_args = docopt(bench.__doc__, argv=argv)
-        args.update(lemur_args)
-        bench(**args)
+        bench(**docopt(bench.__doc__, argv=argv))
     elif args['<command>'] == 'ssh-tunnel':
-        lemur_args = docopt(ssh_tunnel.__doc__, argv=argv)
-        args.update(lemur_args)
-        ssh_tunnel(**args)
+        ssh_tunnel(**docopt(ssh_tunnel.__doc__, argv=argv))
     elif args['<command>'] == 'info':
-        lemur_args = docopt(info.__doc__, argv=argv)
-        args.update(lemur_args)
-        info(**args)
+        info(**docopt(info.__doc__, argv=argv))
     else: pass
 
     # # If the user doesn't specify a phase in particular, then run all

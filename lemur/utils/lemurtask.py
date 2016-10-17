@@ -52,12 +52,12 @@ def lemurtask(doc):
             logging.info("Lemur kwargs %s", kwargs)
 
             # TODO: Dynamically loads the provider
-            provider_name = kwargs['--provider']
-            kwargs['provider'] = G5K()
+            if kwargs.has_key('--provider'):
+                provider_name = kwargs['--provider']
+                kwargs['provider'] = G5K()
 
             # Loads the environment & set the config
             env = load_env()
-            env['phase'] = kwargs['<command>']
             kwargs['env'] = env
 
             # Proceeds with the function executio
