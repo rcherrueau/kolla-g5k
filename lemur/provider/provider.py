@@ -5,7 +5,7 @@ class Provider:
     __metaclass__ = ABCMeta
 
     @abstractmethod
-    def initialize(self, config, force=False):
+    def init(self, config, force=False):
         """Provides resources and provisions the environment.
 
         The `config` parameter contains the client request (eg, number

@@ -8,7 +8,7 @@ Options:
   --provider=PROVIDER  The provider name [default: G5K].
 
 Commands:
-  up             Make a G5K reservation and install the docker registry.
+  up             Get resources and install the docker registry.
   os             Run kolla and install OpenStack.
   init           TODO: explain me.
   bench          Run rally on this OpenStack.
@@ -18,16 +18,12 @@ Commands:
 See 'lemur <command> --help' for more information on a specific command.
 """
 from utils import *
-from provider.g5k import G5K
-
-import functools
+from utils.lemurtask import lemurtask
 
 from datetime import datetime
 import logging
 
 from docopt import docopt
-from subprocess import call
-import pickle
 import requests
 import pprint
 from operator import itemgetter, attrgetter
@@ -37,15 +33,14 @@ from keystoneauth1 import session
 from glanceclient import client as gclient
 from keystoneclient.v3 import client as kclient
 
-import sys, os, subprocess
-from ansible.inventory import Inventory
-import ansible.callbacks
-import ansible.playbook
+import os
+import sys
+from subprocess import call
 
-import jinja2
 
 import yaml
 
+CALL_PATH = os.getcwd()
 SCRIPT_PATH = os.path.dirname(os.path.realpath(__file__))
 SYMLINK_NAME = os.path.join(SCRIPT_PATH, 'current')
 TEMPLATE_DIR = os.path.join(SCRIPT_PATH, 'templates')
@@ -71,63 +66,6 @@ NEUTRON_IP  = 4
 NETWORK_IFACE  = 0
 EXTERNAL_IFACE = 1
 
-def load_env():
-    env = {
-        'config' : {},      # The config
-        'config_file' : '', # The initial config file
-        'nodes'  : {},      # Roles with nodes
-        'phase'  : '',      # Last phase that have been run
-        'user'   : '',      # User id for this job
-        'kolla_repo': 'https://git.openstack.org/openstack/kolla',
-        'kolla_branch': 'stable/mitaka'
-    }
-
-    # Loads the previously saved environment (if any)
-    env_path = os.path.join(SYMLINK_NAME, 'env')
-    if os.path.isfile(env_path):
-        with open(env_path, 'r') as f:
-            env.update(yaml.load(f))
-            logging.info("Reloaded config %s", ENV['config'])
-
-    # Resets the configuration of the environment
-    if os.path.isfile(env['config_file']):
-        with open(env['config_file'], 'r') as f:
-            env['config'].update(yaml.load(f))
-            logging.info("Reloaded config %s", ENV['config'])
-
-
-    return env
-
-def save_env(env):
-    env_path = os.path.join(SYMLINK_NAME, 'env')
-    with open(env_path, 'w') as f:
-        yaml.dump(env, f)
-
-def lemurtask(doc):
-    """Decorator for a Lemur Task."""
-    def decorator(fn):
-        fn.__doc__ = doc
-        @functools.wraps(fn)
-        def decorated(*args, **kwargs):
-            logging.info("Lemur kwargs %s", kwargs)
-
-            # TODO: Dynamically loads the provider
-            provider_name = kwargs['--provider']
-            kwargs['provider'] = G5K()
-
-            # Loads the environment & set the config
-            env = load_env()
-            kwargs['env'] = env
-
-            # Proceeds with the function executio
-            fn(*args, **kwargs)
-
-            # TODO: handle the save of env
-            save_env(env)
-        return decorated
-    return decorator
-
-
 @lemurtask(
 """usage: lemur up [-f CONFIG_PATH] [--force-deploy] [-t TAGS | --tags=TAGS]
 
@@ -135,7 +73,7 @@ def lemurtask(doc):
 
   -f CONFIG_PATH        Path to the configuration file describing the
                         Grid'5000 deployment [default: ./reservation.yaml].
-  --force-deploy        Force deployment.
+  --force-deploy        Force deployment [default: False].
   -t TAGS --tags=TAGS   Only run ansible tasks tagged with these values.
 
 """)
@@ -143,23 +81,28 @@ def up(provider=None, env=None, **kwargs):
     logging.info('phase[up]')
 
     # Loads the configuration file
-    if os.path.isfile(kwargs['-f']):
-        with open(env['config_file'], 'r') as f:
+    config_file = kwargs['-f']
+    if os.path.isfile(config_file):
+        env['config_file'] = config_file
+        with open(config_file, 'r') as f:
             env['config'].update(yaml.load(f))
-            logging.info("Reloaded config %s", ENV['config'])
+            logging.info("Reloaded config %s", env['config'])
+    else:
+        logging.error('Configuration file %s does not exist', config_file)
 
-    rsc, ips, eths = provider.initialize(env['config'])
+    # Calls the provider and initialise resources
+    rsc, ips, eths = provider.init(env['config'], kwargs['--force-deploy'])
 
-    # env.watch(rsc)
     env['rsc'] = rsc
 
     # Generates a directory for results
     resultdir_name = 'lemur_' + datetime.today().isoformat()
-    resultdir = os.path.join(SCRIPT_PATH, resultdir_name)
+    resultdir = os.path.join(CALL_PATH, resultdir_name)
     os.mkdir(resultdir)
     logging.info('Generates result directory %s' % resultdir_name)
 
     env['resultdir'] = resultdir
+    sys.exit(0)
 
     # Generates inventory for ansible/kolla
     base_inventory = config['inventory']
@@ -333,6 +276,10 @@ def ssh_tunnel(**kwargs):
 
     logger.info(script)
     logger.info("___")
+
+@lemurtask("usage: lemur info")
+def info(env = None, **kwargs):
+    pprint.pprint(env)
 
 
 if __name__ == "__main__":

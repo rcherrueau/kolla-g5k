@@ -1,9 +1,13 @@
 # -*- coding: utf-8 -*-
-from legacy.g5k_engine import G5kEngine
 from provider import Provider
+import logging
+
+import execo_g5k as EX5
+
+NETWORK_FILE = 'g5k_networks.yaml'
 
 class G5K(Provider):
-    def initialize(self, config, force=False):
+    def init(self, config, force_deploy=False):
         """Provides resources and provisions the environment.
 
         Resources offers an ssh connection with an access for root
