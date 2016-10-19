@@ -7,7 +7,7 @@ import yaml
 import logging
 
 SCRIPT_PATH = os.path.dirname(os.path.realpath(__file__))
-SYMLINK_NAME = os.path.join(SCRIPT_PATH, '..', 'current')
+SYMLINK_NAME = os.path.join(SCRIPT_PATH, '..', '..', 'current')
 
 def load_env():
     env = {

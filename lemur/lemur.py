@@ -17,6 +17,7 @@ Commands:
 
 See 'lemur <command> --help' for more information on a specific command.
 """
+from utils.constants import SYMLINK_NAME, TEMPLATE_DIR, ANSIBLE_DIR
 from utils.extra import *
 from utils.lemurtask import lemurtask
 
@@ -41,8 +42,6 @@ import yaml
 
 CALL_PATH = os.getcwd()
 SCRIPT_PATH = os.path.dirname(os.path.realpath(__file__))
-SYMLINK_NAME = os.path.join(SCRIPT_PATH, 'current')
-TEMPLATE_DIR = os.path.join(SCRIPT_PATH, 'templates')
 
 INTERNAL_IP = 0
 REGISTRY_IP = 1
@@ -103,14 +102,14 @@ def up(provider=None, env=None, **kwargs):
 
     # Set variables required by playbooks of the application
     env['config'].update({
-        # Lemur/Kolla
+        # Lemur specific
         'vip':          ips[INTERNAL_IP],
         'registry_vip': ips[REGISTRY_IP],
         'influx_vip':   ips[INFLUX_IP],
         'grafana_vip':  ips[GRAFANA_IP],
+        # Kolla + common specific
         'neutron_external_address': ips[NEUTRON_IP],
         'network_interface': eths[NETWORK_IFACE],
-
         # Kolla specific
         'kolla_internal_vip_address': ips[INTERNAL_IP],
         'neutron_external_interface': eths[EXTERNAL_IFACE]
@@ -122,7 +121,7 @@ def up(provider=None, env=None, **kwargs):
     # Executes hooks and runs playbook that initializes resources (eg,
     # installs the registry, install monitoring tools, ...)
     provider.before_preintsall(env)
-    up_playbook = os.path.join(SCRIPT_PATH, 'ansible', 'up.yml')
+    up_playbook = os.path.join(ANSIBLE_DIR, 'up.yml')
     run_ansible([up_playbook], inventory, env['config'], kwargs['--tags'])
     provider.after_preintsall(env)
 
@@ -145,26 +144,34 @@ usage: lemur os [--reconfigure] [-t TAGS | --tags=TAGS] [-v|-vv|-vvv]
 """)
 def install_os(env=None, **kwargs):
     # Generates kolla globals.yml, passwords.yml
-    generate_kolla_files(env['config']["kolla"], env['config'], env['resultdir'])
+    generated_kolla_vars = {
+        # Kolla + common specific
+        'neutron_external_address'   : env['ips'][NEUTRON_IP],
+        'network_interface'          : env['eths'][NETWORK_IFACE],
+        # Kolla specific
+        'kolla_internal_vip_address' : env['ips'][INTERNAL_IP],
+        'neutron_external_interface' : env['eths'][EXTERNAL_IFACE]
+    }
+    generate_kolla_files(env['config']["kolla"], generated_kolla_vars, env['resultdir'])
 
     # Clone or pull Kolla
-    if os.path.isdir('kolla'):
+    kolla_path = os.path.join(env['resultdir'], 'kolla')
+    if os.path.isdir(kolla_path):
         logging.info("Remove previous Kolla installation")
-        kolla_path = os.path.join(SCRIPT_PATH, "kolla")
         call("rm -rf %s" % kolla_path, shell=True)
 
     logging.info("Cloning Kolla")
-    call("cd %s ; git clone %s -b %s > /dev/null" % (SCRIPT_PATH, env['kolla_repo'], env['kolla_branch']), shell=True)
+    call("git clone %s -b %s %s > /dev/null" % (env['kolla_repo'], env['kolla_branch'], kolla_path), shell=True)
 
     logging.warning(("Patching kolla, this should be ",
                      "deprecated with the new version of Kolla"))
 
-    playbook = os.path.join(SCRIPT_PATH, "ansible", "patches.yml")
+    playbook = os.path.join(ANSIBLE_DIR, "patches.yml")
     run_ansible([playbook], env['inventory'], env['config'])
 
-    kolla_cmd = [os.path.join(SCRIPT_PATH, "kolla", "tools", "kolla-ansible")]
+    kolla_cmd = [os.path.join(kolla_path, "tools", "kolla-ansible")]
 
-    if kwargs.has_key('--reconfigure'):
+    if kwargs['--reconfigure']:
         kolla_cmd.append('reconfigure')
     else:
         kolla_cmd.append('deploy')
@@ -172,8 +179,12 @@ def install_os(env=None, **kwargs):
     kolla_cmd.extend(["-i", "%s/multinode" % SYMLINK_NAME,
                       "--configdir", "%s" % SYMLINK_NAME])
 
-    if kwargs.has_key('--tags'): kolla_cmd.extend(['--tags', args])
+    if kwargs['--tags']: 
+        kolla_cmd.extend(['--tags', kwargs['--tags']])
 
+
+    logging.info(kwargs)
+    logging.info(kolla_cmd)
     call(kolla_cmd)
 
 
@@ -182,11 +193,12 @@ usage: lemur init [-v|-vv|-vvv]
 
   -h --help            Show this help message.
 """)
-def init_os(**kwargs):
+def init_os(env=None, **kwargs):
     # Authenticate to keystone
     # http://docs.openstack.org/developer/keystoneauth/using-sessions.html
     # http://docs.openstack.org/developer/python-glanceclient/apiv2.html
-    keystone_addr = ENV['config']['vip']
+    keystone_addr = env['config']['vip']
+
     auth = v3.Password(auth_url='http://%s:5000/v3' % keystone_addr,
                        username='admin',
                        password='demo',
@@ -236,20 +248,20 @@ def init_os(**kwargs):
   --wait=WAIT               Seconds to wait between two scenarios
                             [default: 0].
 """)
-def bench(**kwargs):
-    playbook_path = os.path.join(SCRIPT_PATH, 'ansible', 'run-bench.yml')
+def bench(env=None, **kwargs):
+    playbook_path = os.path.join(ANSIBLE_DIR, 'run-bench.yml')
     inventory_path = os.path.join(SYMLINK_NAME, 'multinode')
-    if scenario_list:
-        ENV['config']['rally_scenarios_list'] = scenario_list
-    ENV['config']['rally_times'] = times
-    ENV['config']['rally_concurrency'] = concurrency
-    ENV['config']['rally_wait'] = wait
-    run_ansible([playbook_path], inventory_path, ENV['config'])
+    if kwargs["--scenarios"]:
+        env['config']['rally_scenarios_list'] = kwargs["--scenarios"]
+    env['config']['rally_times'] = kwargs["--times"]
+    env['config']['rally_concurrency'] = kwargs["--concurrency"]
+    env['config']['rally_wait'] = kwargs["--wait"]
+    run_ansible([playbook_path], inventory_path, env['config'])
 
 @lemurtask("""usage: lemur ssh-tunnel""")
-def ssh_tunnel(**kwargs):
-    user = ENV['user']
-    internal_vip_address = ENV['config']['vip']
+def ssh_tunnel(env=None, **kwargs):
+    user = env['user']
+    internal_vip_address = env['config']['vip']
 
     logging.info("ssh tunnel informations:")
     logging.info("___")
@@ -271,7 +283,7 @@ def ssh_tunnel(**kwargs):
     logging.info("___")
 
 @lemurtask("usage: lemur info")
-def info(env = None, **kwargs):
+def info(env=None, **kwargs):
     pprint.pprint(env)
 
 

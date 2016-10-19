@@ -106,11 +106,11 @@ class G5K(Provider):
 
     def before_preintsall(self, env):
         # Create a virtual interface for veth0 (if any)
+        nodes = sum(env['rsc'].values(), [])
         if env['eths'][EXTERNAL_IFACE] == 'veth0':
-            pass
-            # _exec_command_on_nodes(
-            #     'ip link show veth0 || ip link add type veth peer'
-            # )
+            self._exec_command_on_nodes(
+                    nodes,
+                    'ip link show veth0 || ip link add type veth peer')
 
         #- name: Installing bridge-utils
         #  apt: name=bridge-utils state=present
