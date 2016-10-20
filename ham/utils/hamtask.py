@@ -1,13 +1,11 @@
 # -*- coding: utf-8 -*-
 from provider.g5k import G5K
+from utils.constants import SYMLINK_NAME
 from functools import wraps
 
 import os
 import yaml
 import logging
-
-SCRIPT_PATH = os.path.dirname(os.path.realpath(__file__))
-SYMLINK_NAME = os.path.join(SCRIPT_PATH, '..', '..', 'current')
 
 def load_env():
     env = {
@@ -43,13 +41,13 @@ def save_env(env):
         with open(env_path, 'w') as f:
             yaml.dump(env, f)
 
-def lemurtask(doc):
-    """Decorator for a Lemur Task."""
+def hamtask(doc):
+    """Decorator for a Ham Task."""
     def decorator(fn):
         fn.__doc__ = doc
         @wraps(fn)
         def decorated(*args, **kwargs):
-            logging.info("Lemur kwargs %s", kwargs)
+            logging.info("Ham kwargs %s", kwargs)
 
             # TODO: Dynamically loads the provider
             if kwargs.has_key('--provider'):
@@ -63,7 +61,7 @@ def lemurtask(doc):
             # Proceeds with the function executio
             fn(*args, **kwargs)
 
-            # TODO: handle the save of env
+            # Save the environment
             save_env(env)
         return decorated
     return decorator

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 from provider import Provider
+from utils.constants import HAM_PATH, EXETERNAL_IFACE
 
 import yaml
 import os
@@ -20,8 +21,7 @@ import operator
 
 import pprint
 
-SCRIPT_PATH = os.path.dirname(os.path.realpath(__file__))
-NETWORK_FILE = os.path.join(SCRIPT_PATH, 'g5k_networks.yaml')
+NETWORK_FILE = os.path.join(HAM_PATH, 'provider', 'g5k_networks.yaml')
 ROLE_DISTRIBUTION_MODE_STRICT = "strict"
 DEFAULT_CONFIG = {
     "name": "kolla-discovery",
@@ -33,7 +33,6 @@ DEFAULT_CONFIG = {
 };
 MAX_ATTEMPTS = 5
 DEFAULT_CONN_PARAMS = {'user': 'root'}
-EXTERNAL_IFACE = 1
 
 pf = pprint.PrettyPrinter(indent=4).pformat
 

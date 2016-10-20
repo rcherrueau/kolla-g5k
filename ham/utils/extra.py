@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from utils.constants import TEMPLATE_DIR
 
 from ansible.inventory import Inventory
 import ansible.callbacks
@@ -18,9 +19,6 @@ KOLLA_MANDATORY_GROUPS = [
     "network",
     "storage"
 ]
-
-SCRIPT_PATH = os.path.dirname(os.path.realpath(__file__))
-TEMPLATE_DIR = os.path.join(SCRIPT_PATH, '..', 'templates')
 
 def run_ansible(playbooks, inventory_path, extra_vars={}, tags=None):
     inventory = Inventory(inventory_path)
@@ -135,5 +133,5 @@ def generate_kolla_files(config_vars, kolla_vars, directory):
     admin_openrc_vars = {
         'keystone_address': kolla_vars['kolla_internal_vip_address']
     }
-    render_template('lemur/templates/admin-openrc.jinja2', admin_openrc_vars, admin_openrc_path)
+    render_template('ham/templates/admin-openrc.jinja2', admin_openrc_vars, admin_openrc_path)
     logging.info("admin-openrc generated in %s" % (admin_openrc_path))

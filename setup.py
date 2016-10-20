@@ -1,6 +1,6 @@
 from setuptools import setup
 
 setup(
-  name='lemur',
+  name='ham',
   version='0.1'
 )

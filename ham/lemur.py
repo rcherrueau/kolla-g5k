@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Lemur: Monitor and test your OpenStack.
+"""Ham: Monitor and test your OpenStack.
 
-usage: lemur [-h|--help] [-v|-vv|-vvv] <command> [<args> ...]
+usage: ham [-h|--help] [-v|-vv|-vvv] <command> [<args> ...]
 
 Options:
   -h --help      Show this help message.
@@ -15,11 +15,11 @@ Commands:
   ssh-tunnel     Print configuration for port forwarding with horizon.
   info           Show information of the actual deployment.
 
-See 'lemur <command> --help' for more information on a specific command.
+See 'ham <command> --help' for more information on a specific command.
 """
-from utils.constants import SYMLINK_NAME, TEMPLATE_DIR, ANSIBLE_DIR
+from utils.constants import *
 from utils.extra import *
-from utils.lemurtask import lemurtask
+from utils.hamtask import hamtask
 
 from datetime import datetime
 import logging
@@ -41,19 +41,9 @@ from subprocess import call
 import yaml
 
 CALL_PATH = os.getcwd()
-SCRIPT_PATH = os.path.dirname(os.path.realpath(__file__))
 
-INTERNAL_IP = 0
-REGISTRY_IP = 1
-INFLUX_IP   = 2
-GRAFANA_IP  = 3
-NEUTRON_IP  = 4
-
-NETWORK_IFACE  = 0
-EXTERNAL_IFACE = 1
-
-@lemurtask("""
-usage: lemur up [-f CONFIG_PATH] [--force-deploy] [-t TAGS | --tags=TAGS]
+@hamtask("""
+usage: ham up [-f CONFIG_PATH] [--force-deploy] [-t TAGS | --tags=TAGS]
                 [--provider=PROVIDER] [-v|-vv|-vvv]
 
   -h --help            Show this help message.
@@ -85,7 +75,7 @@ def up(provider=None, env=None, **kwargs):
     env['eths'] = eths
 
     # Generates a directory for results
-    resultdir_name = 'lemur_' + datetime.today().isoformat()
+    resultdir_name = 'ham_' + datetime.today().isoformat()
     resultdir = os.path.join(CALL_PATH, resultdir_name)
     os.mkdir(resultdir)
     logging.info('Generates result directory %s' % resultdir_name)
@@ -102,7 +92,7 @@ def up(provider=None, env=None, **kwargs):
 
     # Set variables required by playbooks of the application
     env['config'].update({
-        # Lemur specific
+        # Ham specific
         'vip':          ips[INTERNAL_IP],
         'registry_vip': ips[REGISTRY_IP],
         'influx_vip':   ips[INFLUX_IP],
@@ -135,8 +125,8 @@ def up(provider=None, env=None, **kwargs):
     logging.info("Symlinked %s to %s" % (resultdir, link))
 
 
-@lemurtask("""
-usage: lemur os [--reconfigure] [-t TAGS | --tags=TAGS] [-v|-vv|-vvv]
+@hamtask("""
+usage: ham os [--reconfigure] [-t TAGS | --tags=TAGS] [-v|-vv|-vvv]
 
   -h --help            Show this help message.
   -t TAGS --tags=TAGS  Only run ansible tasks tagged with these values.
@@ -179,7 +169,7 @@ def install_os(env=None, **kwargs):
     kolla_cmd.extend(["-i", "%s/multinode" % SYMLINK_NAME,
                       "--configdir", "%s" % SYMLINK_NAME])
 
-    if kwargs['--tags']: 
+    if kwargs['--tags']:
         kolla_cmd.extend(['--tags', kwargs['--tags']])
 
 
@@ -188,8 +178,8 @@ def install_os(env=None, **kwargs):
     call(kolla_cmd)
 
 
-@lemurtask("""
-usage: lemur init [-v|-vv|-vvv]
+@hamtask("""
+usage: ham init [-v|-vv|-vvv]
 
   -h --help            Show this help message.
 """)
@@ -232,8 +222,8 @@ def init_os(env=None, **kwargs):
         glance.images.upload(cirros.id, cirros_img.content)
         logging.info("%s has been created on OpenStack" %  cirros_name)
 
-@lemurtask(
-"""usage: lemur bench [--scenarios=SCENARIOS] [--times=TIMES]
+@hamtask(
+"""usage: ham bench [--scenarios=SCENARIOS] [--times=TIMES]
                       [--concurrency=CONCURRENCY] [--wait=WAIT]
                       [-v|-vv|-vvv]
 
@@ -258,7 +248,7 @@ def bench(env=None, **kwargs):
     env['config']['rally_wait'] = kwargs["--wait"]
     run_ansible([playbook_path], inventory_path, env['config'])
 
-@lemurtask("""usage: lemur ssh-tunnel""")
+@hamtask("""usage: ham ssh-tunnel""")
 def ssh_tunnel(env=None, **kwargs):
     user = env['user']
     internal_vip_address = env['config']['vip']
@@ -282,14 +272,14 @@ def ssh_tunnel(env=None, **kwargs):
     logging.info(script)
     logging.info("___")
 
-@lemurtask("usage: lemur info")
+@hamtask("usage: ham info")
 def info(env=None, **kwargs):
     pprint.pprint(env)
 
 
 if __name__ == "__main__":
     args = docopt(__doc__,
-                  version='lemur version 0.1',
+                  version='ham version 0.1',
                   options_first=True)
 
     if '-v' in args['<args>']:
